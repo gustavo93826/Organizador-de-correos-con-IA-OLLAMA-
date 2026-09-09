@@ -1,90 +1,69 @@
-"""Servicio de integración con el LLM (Gemini).
+"""Servicio de integración con el LLM (Ollama, local).
 
-Centraliza el cliente de Gemini y la función genérica para pedir
-salidas estructuradas validadas con un esquema Pydantic.
+Centraliza el cliente de Ollama y la función genérica para pedir
+salidas estructuradas, validadas con un esquema Pydantic.
 """
-import json
-
-from google import genai
-from google.genai.errors import ClientError, ServerError
 from loguru import logger
+from ollama import Client, ResponseError
 from pydantic import BaseModel
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 
-MODEL = "gemini-3.6-flash"
-
-_client: genai.Client | None = None
+_client: Client | None = None
 
 
-def get_gemini_client() -> genai.Client:
-    """Devuelve un cliente de Gemini reutilizable (lazy singleton)."""
+def get_ollama_client() -> Client:
+    """Devuelve un cliente de Ollama reutilizable (lazy singleton)."""
     global _client
     if _client is None:
-        if not settings.gemini_api_key:
-            raise RuntimeError(
-                "GEMINI_API_KEY no está configurada. Revisa tu archivo .env."
-            )
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        _client = Client(host=settings.ollama_host)
     return _client
 
 
 def _es_error_reintentable(exc: BaseException) -> bool:
     """True si el error es transitorio y vale la pena reintentar.
 
-    - ServerError (5xx): siempre transitorio, reintentar.
-    - ClientError con code=429: rate limit / cuota agotada, reintentar
-      con backoff. Otros errores 4xx (400, 401, 403...) son errores de
-      programación o credenciales: NO tiene sentido reintentarlos.
+    - ConnectionError: Ollama todavía no responde (recién arrancando,
+      o cargando el modelo en memoria por primera vez). Reintentar.
+    - ResponseError con status_code >= 500: error transitorio del
+      servidor. Reintentar.
+    - Cualquier otro caso (p. ej. 404 porque el modelo no existe): no
+      tiene sentido reintentar, es un problema de configuración.
     """
-    if isinstance(exc, ServerError):
+    if isinstance(exc, ConnectionError):
         return True
-    if isinstance(exc, ClientError):
-        return exc.code == 429
+    if isinstance(exc, ResponseError):
+        return exc.status_code >= 500
     return False
 
 
 @retry(
     retry=retry_if_exception(_es_error_reintentable),
-    wait=wait_exponential(multiplier=2, min=2, max=60),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
     stop=stop_after_attempt(5),
     reraise=True,
 )
 def llamar_llm_estructurado(prompt: str, esquema: type[BaseModel]) -> BaseModel:
-    """Llama a Gemini pidiendo una respuesta que cumpla `esquema`.
+    """Llama a Ollama pidiendo una respuesta que cumpla `esquema`.
 
-    Ante un 429 (cuota agotada) o un error 5xx, reintenta automáticamente
-    con backoff exponencial (2s, 4s, 8s... hasta 60s), hasta 5 intentos.
-    Cualquier otro error (400, 401, 403) se relanza de inmediato.
+    Usa el parámetro `format` de Ollama (JSON Schema) para forzar una
+    salida estructurada -- el mismo rol que cumplía `response_schema`
+    en Gemini. El contrato con `ia_service.py` no cambia.
     """
-    client = get_gemini_client()
+    client = get_ollama_client()
 
-    logger.debug(f"Llamando a Gemini ({MODEL}) con esquema {esquema.__name__}...")
+    logger.debug(f"Llamando a Ollama ({settings.ollama_model}) con esquema {esquema.__name__}...")
 
-    chat = client.chats.create(model=MODEL)
-    response = chat.send_message(
-        prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": esquema,
-        },
+    respuesta = client.chat(
+        model=settings.ollama_model,
+        messages=[{"role": "user", "content": prompt}],
+        format=esquema.model_json_schema(),
+        options={"temperature": 0},
     )
 
-    if response.parsed is not None:
-        return response.parsed
+    contenido = respuesta.message.content
+    if not contenido:
+        raise ValueError(f"Ollama no devolvió contenido para el esquema {esquema.__name__}.")
 
-    if response.text:
-        try:
-            payload = json.loads(response.text)
-            return esquema.model_validate(payload)
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Gemini no devolvió una respuesta válida para {esquema.__name__}: "
-                f"{response.text}"
-            ) from exc
-
-    raise ValueError(
-        f"Gemini no devolvió una respuesta válida para {esquema.__name__}: "
-        f"{response.text}"
-    )
+    return esquema.model_validate_json(contenido)

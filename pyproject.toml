@@ -7,8 +7,8 @@ dependencies = [
     # Backend / API
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    # LLM
-    "google-genai>=0.3",
+    # LLM (local, vía Ollama)
+    "ollama>=0.4",
     # Validación / datos estructurados
     "pydantic>=2.9",
     # Base de datos / ORM

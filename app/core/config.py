@@ -1,8 +1,4 @@
-"""Configuración centralizada de la aplicación.
-
-Carga las variables de entorno definidas en `.env` y las expone
-de forma validada a través de la clase `Settings`.
-"""
+"""Configuración centralizada de la aplicación."""
 import os
 from pathlib import Path
 
@@ -13,7 +9,8 @@ load_dotenv()
 
 
 class Settings(BaseModel):
-    gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    ollama_host: str = Field(default_factory=lambda: os.getenv("OLLAMA_HOST", "http://localhost:11434"))
+    ollama_model: str = Field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "llama3.1"))
     gmail_credentials_path: Path = Field(
         default_factory=lambda: Path(os.getenv("GMAIL_CREDENTIALS_PATH", "credentials.json"))
     )

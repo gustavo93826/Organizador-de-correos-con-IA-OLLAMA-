@@ -9,7 +9,7 @@ clasifica, resume, prioriza y sugiere borradores de respuesta.
 - [x] Paso 2 — Conexión y autenticación con Gmail
 - [x] Paso 3 — Modelo de datos y base de datos
 - [x] Paso 4 — Esquemas de salida estructurada del LLM
-- [x] Paso 5 — Primera integración con Gemini
+- [x] Paso 5 — Primera integración con Ollama
 - [x] Paso 6 — Las 4 funciones de IA como piezas independientes
 - [x] Paso 7 — Orquestación del workflow con Prefect
 - [x] Paso 8 — Automatización con APScheduler
@@ -21,5 +21,5 @@ clasifica, resume, prioriza y sugiere borradores de respuesta.
 
 ## Stack
 
-Python 3.12 · FastAPI · Gemini 2.5 Flash (google-genai) · Pydantic · SQLite + SQLModel ·
+Python 3.12 · FastAPI · Ollama (local, sin API key) · Pydantic · SQLite + SQLModel ·
 APScheduler · Prefect · tenacity · Loguru · Streamlit · uv · Docker · Render

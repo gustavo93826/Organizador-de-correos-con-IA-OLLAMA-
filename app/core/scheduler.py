@@ -9,8 +9,8 @@ from app.services.sync_service import sincronizar_correos_nuevos
 from app.workflows.procesar_email import procesar_bandeja
 
 # Ajusta estos dos valores según tu RPD real (ver tu dashboard de AI Studio).
-INTERVALO_MINUTOS = 60
-LIMITE_CORREOS_POR_CICLO = 1
+INTERVALO_MINUTOS = 5
+LIMITE_CORREOS_POR_CICLO = 10
 
 
 def ciclo_completo() -> None:

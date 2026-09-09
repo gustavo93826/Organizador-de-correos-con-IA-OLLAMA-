@@ -1,7 +1,7 @@
 """Workflow de Prefect que encadena clasificar → resumir → priorizar →
 redactar para los correos pendientes de la base de datos.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 
 from prefect import flow, get_run_logger, task
 from prefect.tasks import exponential_backoff
@@ -15,11 +15,6 @@ from app.services.ia_service import (
     redactar_borrador,
     resumir_email,
 )
-
-# --- Tareas de lectura/escritura en BD ---
-# Retries con backoff: protegen contra problemas transitorios de la
-# base de datos (p. ej. "database is locked" cuando el scheduler del
-# Paso 8 y la futura API del Paso 9 acceden casi al mismo tiempo).
 
 
 @task(retries=3, retry_delay_seconds=exponential_backoff(backoff_factor=2), retry_jitter_factor=0.5)
@@ -51,7 +46,7 @@ def guardar_resultados(email_id, categoria, resumen, prioridad, borrador) -> Non
         email.prioridad = prioridad
         email.borrador_respuesta = borrador
         email.estado_procesamiento = EstadoProcesamiento.COMPLETADO
-        email.actualizado_en = datetime.now(timezone.utc)
+        email.actualizado_en = datetime.utcnow()
         session.add(email)
         session.commit()
 
@@ -62,14 +57,16 @@ def marcar_como_error(email_id: int) -> None:
         email = session.get(Email, email_id)
         if email:
             email.estado_procesamiento = EstadoProcesamiento.ERROR
-            email.actualizado_en = datetime.now(timezone.utc)
+            email.actualizado_en = datetime.utcnow()
             session.add(email)
             session.commit()
 
 
 # --- Tareas que llaman al LLM ---
-# retries=0 a propósito: `llamar_llm_estructurado` (Paso 5) ya reintenta
-# internamente con tenacity ante 429/5xx. Ver nota arriba.
+# retries=0 a propósito: `llamar_llm_estructurado` (app/services/llm_service.py)
+# ya reintenta internamente con tenacity ante errores transitorios de
+# Ollama (servidor no disponible aún, 5xx). Si además Prefect reintentara
+# aquí, multiplicaríamos los reintentos innecesariamente.
 
 
 @task(retries=0)
@@ -92,17 +89,9 @@ def redactar_task(datos: dict, categoria):
     return redactar_borrador(**datos, categoria=categoria)
 
 
-# --- Flujos ---
-
-
 @flow(name="procesar-un-email")
 def procesar_un_email(email_id: int) -> None:
-    """Encadena las 4 tareas de IA para un solo correo y persiste el resultado.
-
-    Si algo falla en cualquier punto, el correo queda marcado como ERROR
-    en vez de quedarse en un estado ambiguo, y se relanza la excepción
-    para que quede registrada como fallo en Prefect.
-    """
+    """Encadena las 4 tareas de IA para un solo correo y persiste el resultado."""
     logger_prefect = get_run_logger()
     try:
         datos = obtener_datos_email(email_id)
@@ -128,11 +117,7 @@ def procesar_un_email(email_id: int) -> None:
 
 @flow(name="procesar-bandeja")
 def procesar_bandeja(limite: int = 10) -> None:
-    """Flujo principal: procesa hasta `limite` correos pendientes.
-
-    Este es el flujo que el Paso 8 disparará periódicamente con
-    APScheduler. Si un correo falla, no detiene a los demás.
-    """
+    """Flujo principal: procesa hasta `limite` correos pendientes."""
     logger_prefect = get_run_logger()
     ids = obtener_ids_pendientes(limite)
     logger_prefect.info(f"{len(ids)} correo(s) pendientes por procesar.")
@@ -141,6 +126,4 @@ def procesar_bandeja(limite: int = 10) -> None:
         try:
             procesar_un_email(email_id)
         except Exception:
-            # Ya quedó marcado como ERROR dentro de procesar_un_email;
-            # seguimos con el resto de la bandeja.
             continue
