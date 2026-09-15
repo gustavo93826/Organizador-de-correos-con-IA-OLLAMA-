@@ -7,6 +7,7 @@ from prefect import flow, get_run_logger, task
 from prefect.tasks import exponential_backoff
 from sqlmodel import Session, select
 
+from app.core.config import MAX_EMAILS
 from app.core.database import engine
 from app.models.email import Email, EstadoProcesamiento
 from app.services.ia_service import (
@@ -20,6 +21,17 @@ from app.services.ia_service import (
 @task(retries=3, retry_delay_seconds=exponential_backoff(backoff_factor=2), retry_jitter_factor=0.5)
 def obtener_ids_pendientes(limite: int) -> list[int]:
     with Session(engine) as session:
+        procesados = len(
+            session.exec(
+                select(Email.id).where(
+                    Email.estado_procesamiento == EstadoProcesamiento.COMPLETADO
+                )
+            ).all()
+        )
+        limite = min(limite, max(0, MAX_EMAILS - procesados))
+        if limite == 0:
+            return []
+
         ids = session.exec(
             select(Email.id)
             .where(Email.estado_procesamiento == EstadoProcesamiento.PENDIENTE)

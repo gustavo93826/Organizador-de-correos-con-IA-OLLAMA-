@@ -32,6 +32,7 @@ services:
       - "8501:8501"
     environment:
       - API_BASE_URL=http://api:8000
+      - APP_TIMEZONE=${APP_TIMEZONE:-America/Caracas}
     depends_on:
       - api
     restart: unless-stopped

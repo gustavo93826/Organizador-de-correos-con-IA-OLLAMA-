@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
+MAX_EMAILS = 20
+
 
 class Settings(BaseModel):
     ollama_host: str = Field(default_factory=lambda: os.getenv("OLLAMA_HOST", "http://localhost:11434"))

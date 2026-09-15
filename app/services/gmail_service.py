@@ -54,7 +54,9 @@ def list_recent_messages(service, max_results: int = 5) -> list[dict]:
     """Últimos correos con remitente y asunto (sin cuerpo). Se conserva
     del Paso 2 para pruebas rápidas de conexión.
     """
-    response = service.users().messages().list(userId="me", maxResults=max_results).execute()
+    response = service.users().messages().list(
+        userId="me", labelIds=["INBOX"], maxResults=max_results
+    ).execute()
 
     messages = []
     for msg_ref in response.get("messages", []):
@@ -75,7 +77,9 @@ def obtener_mensajes_nuevos(service, max_results: int = 10) -> list[dict]:
     """Correos más recientes con remitente, asunto, cuerpo de texto y
     fecha, listos para guardar directamente en el modelo `Email`.
     """
-    response = service.users().messages().list(userId="me", maxResults=max_results).execute()
+    response = service.users().messages().list(
+        userId="me", labelIds=["INBOX"], maxResults=max_results
+    ).execute()
 
     mensajes = []
     for ref in response.get("messages", []):
