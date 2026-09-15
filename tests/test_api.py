@@ -33,6 +33,21 @@ def test_listar_emails_vacio(client):
     assert respuesta.json() == []
 
 
+def test_consultar_capacidad(client, session):
+    _crear_email(session)
+
+    respuesta = client.get("/emails/capacidad")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {
+        "procesados": 1,
+        "pendientes": 0,
+        "maximo": 20,
+        "limite_alcanzado": False,
+    }
+
+
+
 def test_listar_emails_con_datos(client, session):
     _crear_email(session)
     respuesta = client.get("/emails")
@@ -55,6 +70,23 @@ def test_listar_emails_filtra_por_categoria(client, session):
 def test_obtener_email_no_encontrado(client):
     respuesta = client.get("/emails/999")
     assert respuesta.status_code == 404
+
+
+def test_listar_emails_filtra_por_rango_de_fechas(client, session):
+    _crear_email(session, gmail_id="antes", fecha_recibido=datetime(2026, 1, 10, tzinfo=UTC))
+    _crear_email(session, gmail_id="dentro", fecha_recibido=datetime(2026, 1, 15, tzinfo=UTC))
+    _crear_email(session, gmail_id="despues", fecha_recibido=datetime(2026, 1, 20, tzinfo=UTC))
+
+    respuesta = client.get(
+        "/emails",
+        params={"fecha_desde": "2026-01-15", "fecha_hasta": "2026-01-15"},
+    )
+
+    datos = respuesta.json()
+    assert respuesta.status_code == 200
+    assert len(datos) == 1
+    assert datos[0]["asunto"] == "Correo de prueba"
+    assert datos[0]["fecha_recibido"].startswith("2026-01-15")
 
 
 def test_actualizar_borrador(client, session):
@@ -88,3 +120,43 @@ def test_manejador_global_de_errores(client):
     respuesta = client.get("/emails")
     assert respuesta.status_code == 500
     assert respuesta.json()["detail"].startswith("Ocurrió un error interno")
+    
+    
+def test_eliminar_email(client, session):
+    email = _crear_email(session)
+
+    respuesta = client.delete(f"/emails/{email.id}")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["eliminado"] == email.id
+    assert client.get(f"/emails/{email.id}").status_code == 404
+
+
+def test_eliminar_email_no_encontrado(client):
+    respuesta = client.delete("/emails/999")
+    assert respuesta.status_code == 404
+
+
+def test_eliminar_todos_los_emails(client, session):
+    _crear_email(session, gmail_id="a")
+    _crear_email(session, gmail_id="b")
+    _crear_email(
+        session,
+        gmail_id="pendiente",
+        estado_procesamiento=EstadoProcesamiento.PENDIENTE,
+    )
+
+    respuesta = client.delete("/emails")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["eliminados"] == 2
+    correos_restantes = client.get("/emails").json()
+    assert len(correos_restantes) == 1
+    assert correos_restantes[0]["estado_procesamiento"] == "pendiente"
+
+
+def test_eliminar_todos_los_emails_sin_datos(client):
+    respuesta = client.delete("/emails")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["eliminados"] == 0
